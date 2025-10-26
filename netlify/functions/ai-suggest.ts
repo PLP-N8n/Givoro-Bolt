@@ -1,6 +1,6 @@
 import type { Handler } from "@netlify/functions";
-import { createClient } from "@supabase/supabase-js";
 import { getGiftIdeasFromGemini } from "../../lib/ai/gemini";
+import { insertGiftSuggestion } from "../../lib/db-queries";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -8,8 +8,6 @@ const CORS = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
 const SITE_URL = process.env.URL || process.env.DEPLOY_URL || process.env.DEPLOY_PRIME_URL || "";
 
@@ -56,13 +54,10 @@ export const handler: Handler = async (event) => {
       })
     );
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
-    const { error: dbError } = await supabase
-      .from("gift_suggestions")
-      .insert([{ query, ai_response: enriched }]);
+    const dbResult = await insertGiftSuggestion(query, enriched);
 
-    if (dbError) {
-      console.error("Database insert error:", dbError);
+    if (!dbResult.success) {
+      console.error("Database insert error:", dbResult.error);
     }
 
     return {

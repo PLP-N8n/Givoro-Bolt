@@ -154,31 +154,34 @@ function App() {
                     </div>
                     {gift.products && gift.products.length > 0 && (
                       <div className="border-t pt-4 mt-4">
-                        {gift.products.map((product, pidx) => (
-                          <a
-                            key={pidx}
-                            href={product.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-3 hover:bg-gray-50 p-2 rounded transition-colors"
-                          >
-                            {product.image && (
-                              <img
-                                src={product.image}
-                                alt={product.title}
-                                className="w-16 h-16 object-cover rounded"
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-gray-900 truncate">
-                                {product.title}
-                              </p>
-                              {product.price && (
-                                <p className="text-sm font-semibold text-blue-600">{product.price}</p>
+                        {gift.products.map((product, pidx) => {
+                          const redirectUrl = `/api/aff-redirect?url=${encodeURIComponent(product.url || "")}&name=${encodeURIComponent(product.title || "")}`;
+                          return (
+                            <a
+                              key={pidx}
+                              href={redirectUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-3 hover:bg-gray-50 p-2 rounded transition-colors"
+                            >
+                              {product.image && (
+                                <img
+                                  src={product.image}
+                                  alt={product.title}
+                                  className="w-16 h-16 object-cover rounded"
+                                />
                               )}
-                            </div>
-                          </a>
-                        ))}
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 truncate">
+                                  {product.title}
+                                </p>
+                                {product.price && (
+                                  <p className="text-sm font-semibold text-blue-600">{product.price}</p>
+                                )}
+                              </div>
+                            </a>
+                          );
+                        })}
                       </div>
                     )}
                     {gift.keywords && gift.keywords.length > 0 && (
@@ -239,8 +242,11 @@ function App() {
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 mt-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-center text-sm text-gray-600">
-          <p>
+          <p className="mb-2">
             © 2025 {import.meta.env.VITE_APP_NAME || "Givoro"}. Find the perfect gift with AI.
+          </p>
+          <p className="text-xs text-gray-500">
+            As an Amazon Associate, we earn from qualifying purchases.
           </p>
         </div>
       </footer>

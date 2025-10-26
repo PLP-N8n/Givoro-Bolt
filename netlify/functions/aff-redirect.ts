@@ -1,4 +1,5 @@
 import type { Handler } from "@netlify/functions";
+import { insertAffiliateClick } from "../../lib/db-queries";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,28 +50,13 @@ export const handler: Handler = async (event) => {
 
     const finalUrl = parsedUrl.toString();
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE;
-
-    if (supabaseUrl && supabaseServiceRole) {
-      try {
-        await fetch(`${supabaseUrl}/rest/v1/affiliate_clicks`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: supabaseServiceRole,
-            Authorization: `Bearer ${supabaseServiceRole}`,
-            Prefer: "return=minimal",
-          },
-          body: JSON.stringify({
-            product_name: name || null,
-            product_url: finalUrl,
-            affiliate_tag: amazonTag,
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to log affiliate click:", err);
+    try {
+      const clickResult = await insertAffiliateClick(name || null, finalUrl, amazonTag);
+      if (!clickResult.success) {
+        console.error("Failed to log affiliate click:", clickResult.error);
       }
+    } catch (err) {
+      console.error("Failed to log affiliate click:", err);
     }
 
     return {
