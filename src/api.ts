@@ -1,45 +1,16 @@
-import type { Product, Suggestion } from "./types";
-
-const API_BASE = "/api";
-
-export async function searchAmazon(query: string): Promise<{ query: string; count: number; items: Product[] }> {
-  const response = await fetch(`${API_BASE}/amazon-search?q=${encodeURIComponent(query)}`);
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Amazon search failed");
-  }
-
-  return response.json();
-}
-
-export async function getSuggestions(input: {
-  query?: string;
-  occasion?: string;
-  recipient?: string;
-  budget?: string;
-  interests?: string[];
-}): Promise<{ suggestions: Suggestion[]; saved: boolean }> {
-  const response = await fetch(`${API_BASE}/ai/suggest`, {
+export async function postIdeas(query: string) {
+  const res = await fetch("/api/ai-suggest", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query }),
   });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to get suggestions");
-  }
+  const text = await res.text();
+  let json: any = {};
+  try { json = text ? JSON.parse(text) : {}; } catch { json = { error: "Bad JSON", raw: text }; }
 
-  return response.json();
-}
-
-export function getAffiliateLink(url: string, name?: string): string {
-  const params = new URLSearchParams({ url });
-  if (name) {
-    params.set("name", name);
+  if (!res.ok) {
+    throw new Error(json?.error || json?.message || `HTTP ${res.status}`);
   }
-  return `${API_BASE}/aff/redirect?${params.toString()}`;
+  return json;
 }

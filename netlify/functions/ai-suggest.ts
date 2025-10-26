@@ -1,5 +1,6 @@
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
+import { getGiftIdeasFromGemini } from "../../lib/ai/gemini";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -19,9 +20,7 @@ export const handler: Handler = async (event) => {
 
   try {
     let body: any = {};
-    if (event.body) {
-      try { body = JSON.parse(event.body); } catch { body = {}; }
-    }
+    if (event.body) { try { body = JSON.parse(event.body); } catch { body = {}; } }
 
     const query =
       body.query ??
@@ -36,38 +35,18 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const prompt = `Return 6 short gift ideas as a pure JSON array.
-Each item: { "title": string, "reason": string, "keywords": string[] }.
-No prose, no code fences. Query: "${query}"`;
-
-    const gemRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      }
-    );
-
-    const gemData = await gemRes.json();
-    const text =
-      gemData?.candidates?.[0]?.content?.parts?.[0]?.text ??
-      gemData?.promptFeedback?.blockReason ??
-      "[]";
-
-    let suggestions: Array<{title:string;reason:string;keywords:string[]}> = [];
-    try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) suggestions = parsed;
-    } catch { /* fallback to [] */ }
+    const ideas = await getGiftIdeasFromGemini(GEMINI_API_KEY, query);
 
     const enriched = await Promise.all(
-      suggestions.slice(0, 10).map(async (s) => {
-        const q = encodeURIComponent((s.keywords?.length ? s.keywords : [s.title]).join(" "));
+      ideas.slice(0, 10).map(async (s) => {
+        const searchQ = encodeURIComponent((s.keywords?.length ? s.keywords : [s.title]).join(" "));
         try {
-          const r = await fetch(`${SITE_URL}/.netlify/functions/amazon-search?q=${q}`);
-          const j = await r.json().catch(() => ({ items: [] }));
-          return { ...s, products: (j.items ?? []).slice(0, 1) };
+          const r = await fetch(`${SITE_URL}/.netlify/functions/amazon-search?q=${searchQ}`);
+          const text = await r.text();
+          let j: any = {};
+          try { j = text ? JSON.parse(text) : {}; } catch { j = {}; }
+          const items = Array.isArray(j?.items) ? j.items.slice(0, 1) : [];
+          return { ...s, products: items };
         } catch {
           return { ...s, products: [] };
         }
@@ -75,7 +54,7 @@ No prose, no code fences. Query: "${query}"`;
     );
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
-    await supabase.from("gift_suggestions").insert([{ query, ai_response: enriched }]);
+    await supabase.from("gift_suggestions").insert([{ query, ai_response: enriched }]).throwOnError();
 
     return {
       statusCode: 200,
