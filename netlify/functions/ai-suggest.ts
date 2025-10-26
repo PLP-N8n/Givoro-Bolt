@@ -1,231 +1,93 @@
 import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
 
-const corsHeaders = {
+const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-interface SuggestionInput {
-  occasion?: string;
-  recipient?: string;
-  budget?: string;
-  interests?: string[];
-  query?: string;
-}
-
-interface GeminiIdea {
-  title: string;
-  reason: string;
-  keywords: string[];
-}
-
-interface Product {
-  asin: string;
-  title: string;
-  image?: string;
-  price?: string;
-  url: string;
-}
-
-interface Suggestion extends GeminiIdea {
-  products: Product[];
-}
+const SUPABASE_URL = process.env.SUPABASE_URL!;
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
+const SITE_URL = process.env.URL || "";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: "",
-    };
+    return { statusCode: 200, headers: CORS, body: "" };
   }
 
   try {
-    if (!event.body) {
+    let body: any = {};
+    if (event.body) {
+      try { body = JSON.parse(event.body); } catch { body = {}; }
+    }
+
+    const query =
+      body.query ??
+      event.queryStringParameters?.q ??
+      `${body.occasion ?? ""} ${body.recipient ?? ""} ${body.interests ?? ""}`.trim();
+
+    if (!query) {
       return {
         statusCode: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "Request body required" }),
+        headers: { ...CORS, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: "Missing query. Provide { query } or ?q=..." }),
       };
     }
 
-    const input: SuggestionInput = JSON.parse(event.body);
-    const { occasion, recipient, budget, interests, query } = input;
+    const prompt = `Return 6 short gift ideas as a pure JSON array.
+Each item: { "title": string, "reason": string, "keywords": string[] }.
+No prose, no code fences. Query: "${query}"`;
 
-    if (!query && !occasion && !recipient) {
-      return {
-        statusCode: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          error: "Must provide either 'query' or gift details (occasion, recipient, etc.)",
-        }),
-      };
-    }
-
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      console.error("GEMINI_API_KEY not configured");
-      return {
-        statusCode: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "AI service not configured" }),
-      };
-    }
-
-    let promptText = "";
-    if (query) {
-      promptText = `Generate 6-10 thoughtful gift suggestions for: "${query}". Each suggestion should include a title, reason why it's a good gift, and relevant keywords for finding it on Amazon UK.`;
-    } else {
-      promptText = `Generate 6-10 thoughtful gift suggestions for:\n- Recipient: ${recipient || "someone special"}\n- Occasion: ${occasion || "general gift"}\n- Budget: ${budget || "flexible"}\n- Interests: ${interests?.join(", ") || "various"}.\n\nEach suggestion should include a title, reason why it's a good gift, and relevant keywords for finding it on Amazon UK.`;
-    }
-
-    promptText += `\n\nRespond with valid JSON only, in this exact format:\n{\n  "suggestions": [\n    {\n      "title": "Gift idea name",\n      "reason": "Why this is a great gift",\n      "keywords": ["keyword1", "keyword2", "keyword3"]\n    }\n  ]\n}`;
-
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiApiKey}`,
+    const gemRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text: promptText,
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 2048,
-          },
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
       }
     );
 
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error("Gemini API error:", errorText);
-      return {
-        statusCode: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "AI generation failed" }),
-      };
-    }
+    const gemData = await gemRes.json();
+    const text =
+      gemData?.candidates?.[0]?.content?.parts?.[0]?.text ??
+      gemData?.promptFeedback?.blockReason ??
+      "[]";
 
-    const geminiData = await geminiResponse.json();
-    let responseText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-
-    responseText = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-
-    let geminiIdeas: GeminiIdea[];
+    let suggestions: Array<{title:string;reason:string;keywords:string[]}> = [];
     try {
-      const parsed = JSON.parse(responseText);
-      geminiIdeas = parsed.suggestions || [];
-    } catch (parseError) {
-      console.error("Failed to parse Gemini response:", responseText);
-      return {
-        statusCode: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "AI response format error" }),
-      };
-    }
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) suggestions = parsed;
+    } catch { /* fallback to [] */ }
 
-    geminiIdeas = geminiIdeas.slice(0, 10);
-
-    const suggestions: Suggestion[] = await Promise.all(
-      geminiIdeas.map(async (idea) => {
-        const searchQuery = idea.keywords.join(" ");
-        const products: Product[] = [];
-
+    const enriched = await Promise.all(
+      suggestions.slice(0, 10).map(async (s) => {
+        const q = encodeURIComponent((s.keywords?.length ? s.keywords : [s.title]).join(" "));
         try {
-          const amazonUrl = `${process.env.URL || "http://localhost:8888"}/.netlify/functions/amazon-search?q=${encodeURIComponent(searchQuery)}`;
-          const amazonResponse = await fetch(amazonUrl);
-
-          if (amazonResponse.ok) {
-            const amazonData = await amazonResponse.json();
-            products.push(...(amazonData.items || []).slice(0, 2));
-          }
-        } catch (err) {
-          console.error(`Amazon search failed for "${searchQuery}":`, err);
+          const r = await fetch(`${SITE_URL}/.netlify/functions/amazon-search?q=${q}`);
+          const j = await r.json().catch(() => ({ items: [] }));
+          return { ...s, products: (j.items ?? []).slice(0, 1) };
+        } catch {
+          return { ...s, products: [] };
         }
-
-        return {
-          ...idea,
-          products,
-        };
       })
     );
 
-    const supabaseUrl = process.env.SUPABASE_URL;
-    const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE;
-
-    let saved = false;
-    if (supabaseUrl && supabaseServiceRole) {
-      try {
-        const supabaseResponse = await fetch(`${supabaseUrl}/rest/v1/gift_suggestions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: supabaseServiceRole,
-            Authorization: `Bearer ${supabaseServiceRole}`,
-            Prefer: "return=minimal",
-          },
-          body: JSON.stringify({
-            query: query || JSON.stringify({ occasion, recipient, budget, interests }),
-            ai_response: { suggestions },
-          }),
-        });
-
-        if (supabaseResponse.ok) {
-          saved = true;
-        } else {
-          console.error("Failed to save to Supabase:", await supabaseResponse.text());
-        }
-      } catch (err) {
-        console.error("Supabase save error:", err);
-      }
-    }
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
+    await supabase.from("gift_suggestions").insert([{ query, ai_response: enriched }]);
 
     return {
       statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ suggestions, saved }),
+      headers: { ...CORS, "Content-Type": "application/json" },
+      body: JSON.stringify({ query, suggestions: enriched, saved: true }),
     };
-  } catch (err: any) {
-    console.error("ai-suggest error:", err);
+  } catch (e: any) {
+    console.error("ai-suggest failed:", e);
     return {
       statusCode: 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        error: "Gift suggestion failed",
-        message: err.message,
-      }),
+      headers: { ...CORS, "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "ai-suggest failed", message: e.message ?? "unknown" }),
     };
   }
 };
