@@ -35,7 +35,9 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    console.log("Calling Gemini API with query:", query);
     const ideas = await getGiftIdeasFromGemini(GEMINI_API_KEY, query);
+    console.log("Gemini returned", ideas.length, "ideas");
 
     const enriched = await Promise.all(
       ideas.slice(0, 10).map(async (s) => {
@@ -55,7 +57,13 @@ export const handler: Handler = async (event) => {
     );
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
-    await supabase.from("gift_suggestions").insert([{ query, ai_response: enriched }]).throwOnError();
+    const { error: dbError } = await supabase
+      .from("gift_suggestions")
+      .insert([{ query, ai_response: enriched }]);
+
+    if (dbError) {
+      console.error("Database insert error:", dbError);
+    }
 
     return {
       statusCode: 200,
@@ -64,10 +72,15 @@ export const handler: Handler = async (event) => {
     };
   } catch (e: any) {
     console.error("ai-suggest failed:", e);
+    console.error("Stack trace:", e.stack);
     return {
       statusCode: 500,
       headers: { ...CORS, "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "ai-suggest failed", message: e.message ?? "unknown" }),
+      body: JSON.stringify({
+        error: "ai-suggest failed",
+        message: e.message ?? "unknown",
+        details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+      }),
     };
   }
 };
