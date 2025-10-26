@@ -1,0 +1,373 @@
+Perfect. Here’s the full developer-grade Knowledge Base ready to live inside Bolt’s Knowledge tab.
+
+
+---
+
+Givoro Intelligent Gift Recommendation System
+
+Developer Knowledge Base — v1.1
+
+(Version-controlled: next major update v1.2 will include automation and analytics layers.)
+
+
+---
+
+1. Overview & Vision
+
+Givoro is an intelligent, cross-platform gift recommendation system that helps users—primarily men—find thoughtful, relevant gifts for any occasion with minimal effort.
+It leverages Google Gemini for AI-powered ideation, Supabase for secure data storage and personalization, and multiple affiliate programs to generate passive revenue.
+
+Architecture is web-first with an API-first design, easily extendable into mobile wrappers or messaging bots (WhatsApp planned for v1.2).
+Focus: automation, personalization, high conversion, and minimal maintenance cost.
+
+
+---
+
+2. Core Objectives
+
+1. Deliver AI-generated gift suggestions from minimal inputs: recipient, occasion, budget, interests.
+
+
+2. Aggregate affiliate links (Amazon, ClickBank, Awin, Gymshark, Nike, etc.) and optimize for highest yield per click.
+
+
+3. Maintain a conversational, non-form-like UI.
+
+
+4. Store anonymous preferences in Supabase with full RLS.
+
+
+5. Keep runtime costs < £10/month using static hosting and serverless functions.
+
+
+
+
+---
+
+3. System Architecture Overview
+
+Type: Front-end-driven web app with cloud integrations.
+
+Layer	Role
+
+Frontend (React + Tailwind)	Conversational UI, state machine, rendering.
+AI Layer (Gemini)	Interprets user inputs → structured JSON gift ideas.
+Affiliate Engine	Maps ideas → affiliate URLs (Amazon PA-API primary).
+Data Layer (Supabase)	Sessions, suggestions, clicks, RLS policies.
+Serverless Layer (Netlify)	Proxies AI calls, performs click logging, hides keys.
+
+
+
+---
+
+4. Frontend & Conversation Layer
+
+Stack
+
+Framework: React + TypeScript + TailwindCSS
+
+Icons: lucide-react
+
+Build: Vite
+
+Hosting: Netlify (static)
+
+
+Conversation Flow
+
+S0 greet → askRecipient()
+S1 recipient set → askOccasion()
+S2 occasion set → askBudget()
+S3 budget set → askInterests()
+S4 buildPrompt() → callGemini()
+S5 renderResults()
+S6 resetConversation()
+
+Key Features
+
+Four-question conversational quiz → one Gemini request.
+
+Lightweight state machine.
+
+Gift cards rendered dynamically from JSON.
+
+Click tracking hooks and affiliate disclosure banner.
+
+
+
+---
+
+5. AI Integration Layer (Gemini)
+
+Endpoint
+
+Model: Gemini 1.5 Pro (Google AI Studio / Vertex AI)
+
+Method: HTTPS POST via serverless proxy
+
+Output: strict JSON per schema below
+
+
+JSON Schema
+
+{
+  "suggestions": [
+    {
+      "productName": "string",
+      "reason": "string",
+      "category": "string",
+      "keywords": ["string"]
+    }
+  ]
+}
+
+System Prompt Template
+
+You are Givoro — a friendly, insightful gift recommendation assistant.
+Ask clarifying questions and provide 5–7 thoughtful gift suggestions for
+Amazon UK and other major affiliate platforms.
+Always respond in valid JSON using the above schema.
+
+Post-Processing
+
+1. Validate JSON; repair if malformed.
+
+
+2. For each suggestion, query affiliate engine by category + keywords.
+
+
+3. Attach highest-margin affiliate link.
+
+
+4. Return enriched response for UI rendering.
+
+
+
+Example Function (serverless)
+
+POST /api/ai/suggest
+→ validate body {recipient, occasion, budgetBand, interests[]}
+→ build prompt
+→ call Gemini via API key
+→ repair/validate JSON
+→ enrich with affiliate URLs
+→ return { suggestions[] }
+
+
+---
+
+6. Affiliate Engine (Amazon PA-API + Multi-Network)
+
+Purpose
+
+Convert AI-generated product types into monetizable links.
+
+Data Sources
+
+1. Primary: Amazon PA-API 5.0 (live query).
+
+
+2. Secondary: Google Sheet Products tab.
+
+
+3. Optional: Supabase affiliate_products table.
+
+
+
+Amazon PA-API Integration
+
+Host: webservices.amazon.co.uk
+
+Region: eu-west-1
+
+Partner Tag: purelivingp08-21
+
+Request: SearchItems (keywords from AI suggestion).
+
+Response Mapping:
+
+Title → productName
+
+Image URL → IMG
+
+Price → PRICE (+ timestamp)
+
+DetailPageURL → affiliate link
+
+
+
+Matching Algorithm (pseudo)
+
+for s in ai_response.suggestions:
+    matches = filter(Products,
+                     category=s.category and keywordOverlap())
+    if matches:
+        best = max(matches, key=lambda m: m.commission_pct)
+        s.url = best.landing_url
+    else:
+        s.url = amazonSearchFallback(s.keywords)
+
+Fallback (Amazon Search)
+
+https://www.amazon.co.uk/s?k={keywords_joined}+gift&tag=purelivingp08-21
+
+Netlify Function Routing
+
+POST /.netlify/functions/ai-suggest  # Gemini + enrichment
+GET  /.netlify/functions/aff-redirect?sid=&url=&program=&category=
+
+aff-redirect logs click → validates domain → 302 redirect to affiliate URL.
+
+
+---
+
+7. Data & Personalization Layer (Supabase)
+
+Tables
+
+users(id, created_at, country, locale, consent_personalization)
+profiles(id, user_id, label, recipient_gender, age_band, interests[])
+sessions(id, user_id, recipient_label, occasion, budget_band, keywords[])
+suggestions(id, session_id, product_type, category, chosen_link_program, chosen_link_url, rank)
+clicks(id, suggestion_id, program, category, ts, user_agent)
+affiliate_products(id, program, category, keywords[], product_name,
+                   landing_url, commission_pct, status)
+
+Row-Level Security (RLS)
+
+-- example policy
+CREATE POLICY "user_isolation"
+ON sessions
+FOR ALL
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+
+Example Insert
+
+await supabase.from("sessions").insert({
+  user_id: user.id,
+  occasion: "birthday",
+  budget_band: "20-50",
+  keywords: ["spa", "skincare", "self-care"]
+});
+
+Data Flow
+
+1. Anonymous sign-in → create users row.
+
+
+2. Quiz answers → insert into sessions.
+
+
+3. Gemini results → insert into suggestions.
+
+
+4. Click → insert into clicks.
+
+
+
+
+---
+
+8. Security, Compliance, and Cost Management
+
+Aspect	Implementation
+
+Auth	Supabase anonymous auth + RLS
+PII	None stored unless user opts in with email
+Affiliate Disclosure	Visible in header/footer
+GDPR/ICO	Compliant; user data export possible
+Keys & Secrets	Hidden in Netlify Functions env
+Hosting	Netlify static deploy (~£0 base)
+Monitoring	Supabase dashboard
+Backup	Supabase auto + manual monthly export
+
+
+
+---
+
+9. Deployment Configuration (Netlify Functions)
+
+Folder Structure (partial)
+
+/netlify/functions/
+  ai-suggest.ts     → Gemini proxy + enrichment
+  aff-redirect.ts   → click logger + redirect
+  amazon-search.ts  → PA-API query
+/lib/
+  amazonSign.ts     → AWS SigV4 signer
+/config/
+  prompts.ts        → system + user prompts
+
+Example netlify.toml
+
+[build]
+  command = "pnpm build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/ai/suggest"
+  to   = "/.netlify/functions/ai-suggest"
+  status = 200
+
+[[redirects]]
+  from = "/api/r/aff"
+  to   = "/.netlify/functions/aff-redirect"
+  status = 200
+
+Environment Variables
+
+Client:
+VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AFFILIATE_AMAZON_TAG=purelivingp08-21, VITE_PROMPT_VARIANT
+
+Functions:
+GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE,
+AMAZON_PA_ACCESS_KEY, AMAZON_PA_SECRET_KEY,
+AMAZON_PARTNER_TAG=purelivingp08-21,
+AMAZON_PA_REGION=eu-west-1, AMAZON_PA_HOST=webservices.amazon.co.uk
+
+
+---
+
+10. Version Control and Future Roadmap
+
+v1.1 ( Current )
+
+Core conversational MVP
+
+Gemini 1.5 integration
+
+Supabase RLS schema
+
+Amazon PA-API primary affiliate source
+
+Netlify Functions deployment
+
+
+v1.2 ( Planned )
+
+n8n automation workflows
+
+PostHog analytics & A/B testing
+
+Predictive “Next Gift” runs
+
+Vertex AI migration
+
+WhatsApp bot bridge
+
+Event-level dashboards
+
+
+
+---
+
+Document Version: v1.1 • Authoring Date: 2025-10-21 • Scope: Core AI + Affiliate + Data + Netlify
+Next Update: v1.2 – Automation & Analytics Layer Integration
+
+
+---
+
+That’s your Bolt-ready Knowledge Base v1.1 — clean, narrative, formal, and technically deep enough for automated reasoning.
+Would you like me to now generate the matching “Project Instructions” file (short operational rules Bolt uses for coding tasks, separate from this knowledge narrative)?
