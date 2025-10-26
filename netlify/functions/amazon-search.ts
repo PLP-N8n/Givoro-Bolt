@@ -17,6 +17,31 @@ export const handler: Handler = async (event) => {
   }
 
   try {
+    const requiredVars = {
+      AMAZON_PA_ACCESS_KEY: process.env.AMAZON_PA_ACCESS_KEY,
+      AMAZON_PA_SECRET_KEY: process.env.AMAZON_PA_SECRET_KEY,
+      AMAZON_PARTNER_TAG: process.env.AMAZON_PARTNER_TAG,
+    };
+
+    const missingVars = Object.entries(requiredVars)
+      .filter(([_, value]) => !value)
+      .map(([key]) => key);
+
+    if (missingVars.length > 0) {
+      return {
+        statusCode: 500,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          error: "Amazon PA-API credentials not configured",
+          missing: missingVars,
+          message: "Please set the required environment variables in StackBlitz or Netlify",
+        }),
+      };
+    }
+
     const query =
       event.queryStringParameters?.q ||
       (event.body ? JSON.parse(event.body).query : null);
@@ -40,6 +65,21 @@ export const handler: Handler = async (event) => {
     const { url, options } = signPaapiRequest({ payloadObj: payload });
     const res = await fetch(url, options);
     const data = await res.json();
+
+    if (data.Errors) {
+      console.error("Amazon PA-API error:", data.Errors);
+      return {
+        statusCode: 502,
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          error: "Amazon PA-API returned an error",
+          details: data.Errors,
+        }),
+      };
+    }
 
     const items = data?.SearchResult?.Items?.map((i: any) => ({
       asin: i.ASIN,
