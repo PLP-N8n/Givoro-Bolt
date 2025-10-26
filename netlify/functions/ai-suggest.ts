@@ -33,8 +33,16 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    const context = {
+      recipient: body.recipient,
+      occasion: body.occasion,
+      budget: body.budget,
+      interests: Array.isArray(body.interests) ? body.interests : undefined,
+    };
+
     console.log("Calling Gemini API with query:", query);
-    const ideas = await getGiftIdeasFromGemini(GEMINI_API_KEY, query);
+    console.log("Context:", context);
+    const ideas = await getGiftIdeasFromGemini(GEMINI_API_KEY, query, context);
     console.log("Gemini returned", ideas.length, "ideas");
 
     const enriched = await Promise.all(

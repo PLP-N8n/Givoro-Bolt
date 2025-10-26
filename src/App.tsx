@@ -50,7 +50,7 @@ function App() {
         const query = buildQuery();
 
         try {
-          const result = await postIdeas(query);
+          const result = await postIdeas(query, conversationData);
           setSuggestions(result.suggestions || []);
           setState("RESULTS");
         } catch (e: any) {

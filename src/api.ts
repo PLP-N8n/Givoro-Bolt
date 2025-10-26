@@ -1,8 +1,15 @@
-export async function postIdeas(query: string) {
+type ConversationContext = {
+  recipient?: string;
+  occasion?: string;
+  budget?: string;
+  interests?: string[];
+};
+
+export async function postIdeas(query: string, context?: ConversationContext) {
   const res = await fetch("/api/ai-suggest", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, ...context }),
   });
 
   const text = await res.text();
