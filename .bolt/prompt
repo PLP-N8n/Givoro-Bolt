@@ -1,373 +1,185 @@
-Perfect. Here’s the full developer-grade Knowledge Base ready to live inside Bolt’s Knowledge tab.
-
-
----
-
-Givoro Intelligent Gift Recommendation System
-
-Developer Knowledge Base — v1.1
-
-(Version-controlled: next major update v1.2 will include automation and analytics layers.)
-
-
----
-
-1. Overview & Vision
-
-Givoro is an intelligent, cross-platform gift recommendation system that helps users—primarily men—find thoughtful, relevant gifts for any occasion with minimal effort.
-It leverages Google Gemini for AI-powered ideation, Supabase for secure data storage and personalization, and multiple affiliate programs to generate passive revenue.
-
-Architecture is web-first with an API-first design, easily extendable into mobile wrappers or messaging bots (WhatsApp planned for v1.2).
-Focus: automation, personalization, high conversion, and minimal maintenance cost.
-
-
----
-
-2. Core Objectives
-
-1. Deliver AI-generated gift suggestions from minimal inputs: recipient, occasion, budget, interests.
-
-
-2. Aggregate affiliate links (Amazon, ClickBank, Awin, Gymshark, Nike, etc.) and optimize for highest yield per click.
-
-
-3. Maintain a conversational, non-form-like UI.
-
-
-4. Store anonymous preferences in Supabase with full RLS.
-
-
-5. Keep runtime costs < £10/month using static hosting and serverless functions.
-
-
-
-
----
-
-3. System Architecture Overview
-
-Type: Front-end-driven web app with cloud integrations.
-
-Layer	Role
-
-Frontend (React + Tailwind)	Conversational UI, state machine, rendering.
-AI Layer (Gemini)	Interprets user inputs → structured JSON gift ideas.
-Affiliate Engine	Maps ideas → affiliate URLs (Amazon PA-API primary).
-Data Layer (Supabase)	Sessions, suggestions, clicks, RLS policies.
-Serverless Layer (Netlify)	Proxies AI calls, performs click logging, hides keys.
-
-
-
----
-
-4. Frontend & Conversation Layer
-
-Stack
-
-Framework: React + TypeScript + TailwindCSS
-
-Icons: lucide-react
-
-Build: Vite
-
-Hosting: Netlify (static)
-
-
-Conversation Flow
-
-S0 greet → askRecipient()
-S1 recipient set → askOccasion()
-S2 occasion set → askBudget()
-S3 budget set → askInterests()
-S4 buildPrompt() → callGemini()
-S5 renderResults()
-S6 resetConversation()
-
-Key Features
-
-Four-question conversational quiz → one Gemini request.
-
-Lightweight state machine.
-
-Gift cards rendered dynamically from JSON.
-
-Click tracking hooks and affiliate disclosure banner.
-
-
-
----
-
-5. AI Integration Layer (Gemini)
-
-Endpoint
-
-Model: Gemini 1.5 Pro (Google AI Studio / Vertex AI)
-
-Method: HTTPS POST via serverless proxy
-
-Output: strict JSON per schema below
-
-
-JSON Schema
-
-{
-  "suggestions": [
-    {
-      "productName": "string",
-      "reason": "string",
-      "category": "string",
-      "keywords": ["string"]
-    }
-  ]
-}
-
-System Prompt Template
-
-You are Givoro — a friendly, insightful gift recommendation assistant.
-Ask clarifying questions and provide 5–7 thoughtful gift suggestions for
-Amazon UK and other major affiliate platforms.
-Always respond in valid JSON using the above schema.
-
-Post-Processing
-
-1. Validate JSON; repair if malformed.
-
-
-2. For each suggestion, query affiliate engine by category + keywords.
-
-
-3. Attach highest-margin affiliate link.
-
-
-4. Return enriched response for UI rendering.
-
-
-
-Example Function (serverless)
-
-POST /api/ai/suggest
-→ validate body {recipient, occasion, budgetBand, interests[]}
-→ build prompt
-→ call Gemini via API key
-→ repair/validate JSON
-→ enrich with affiliate URLs
-→ return { suggestions[] }
-
-
----
-
-6. Affiliate Engine (Amazon PA-API + Multi-Network)
-
-Purpose
-
-Convert AI-generated product types into monetizable links.
-
-Data Sources
-
-1. Primary: Amazon PA-API 5.0 (live query).
-
-
-2. Secondary: Google Sheet Products tab.
-
-
-3. Optional: Supabase affiliate_products table.
-
-
-
-Amazon PA-API Integration
-
-Host: webservices.amazon.co.uk
-
-Region: eu-west-1
-
-Partner Tag: purelivingp08-21
-
-Request: SearchItems (keywords from AI suggestion).
-
-Response Mapping:
-
-Title → productName
-
-Image URL → IMG
-
-Price → PRICE (+ timestamp)
-
-DetailPageURL → affiliate link
-
-
-
-Matching Algorithm (pseudo)
-
-for s in ai_response.suggestions:
-    matches = filter(Products,
-                     category=s.category and keywordOverlap())
-    if matches:
-        best = max(matches, key=lambda m: m.commission_pct)
-        s.url = best.landing_url
-    else:
-        s.url = amazonSearchFallback(s.keywords)
-
-Fallback (Amazon Search)
-
-https://www.amazon.co.uk/s?k={keywords_joined}+gift&tag=purelivingp08-21
-
-Netlify Function Routing
-
-POST /.netlify/functions/ai-suggest  # Gemini + enrichment
-GET  /.netlify/functions/aff-redirect?sid=&url=&program=&category=
-
-aff-redirect logs click → validates domain → 302 redirect to affiliate URL.
-
-
----
-
-7. Data & Personalization Layer (Supabase)
-
-Tables
-
-users(id, created_at, country, locale, consent_personalization)
-profiles(id, user_id, label, recipient_gender, age_band, interests[])
-sessions(id, user_id, recipient_label, occasion, budget_band, keywords[])
-suggestions(id, session_id, product_type, category, chosen_link_program, chosen_link_url, rank)
-clicks(id, suggestion_id, program, category, ts, user_agent)
-affiliate_products(id, program, category, keywords[], product_name,
-                   landing_url, commission_pct, status)
-
-Row-Level Security (RLS)
-
--- example policy
-CREATE POLICY "user_isolation"
-ON sessions
-FOR ALL
-USING (auth.uid() = user_id)
-WITH CHECK (auth.uid() = user_id);
-
-Example Insert
-
-await supabase.from("sessions").insert({
-  user_id: user.id,
-  occasion: "birthday",
-  budget_band: "20-50",
-  keywords: ["spa", "skincare", "self-care"]
-});
-
-Data Flow
-
-1. Anonymous sign-in → create users row.
-
-
-2. Quiz answers → insert into sessions.
-
-
-3. Gemini results → insert into suggestions.
-
-
-4. Click → insert into clicks.
-
-
-
-
----
-
-8. Security, Compliance, and Cost Management
-
-Aspect	Implementation
-
-Auth	Supabase anonymous auth + RLS
-PII	None stored unless user opts in with email
-Affiliate Disclosure	Visible in header/footer
-GDPR/ICO	Compliant; user data export possible
-Keys & Secrets	Hidden in Netlify Functions env
-Hosting	Netlify static deploy (~£0 base)
-Monitoring	Supabase dashboard
-Backup	Supabase auto + manual monthly export
-
-
-
----
-
-9. Deployment Configuration (Netlify Functions)
-
-Folder Structure (partial)
-
-/netlify/functions/
-  ai-suggest.ts     → Gemini proxy + enrichment
-  aff-redirect.ts   → click logger + redirect
-  amazon-search.ts  → PA-API query
-/lib/
-  amazonSign.ts     → AWS SigV4 signer
-/config/
-  prompts.ts        → system + user prompts
-
-Example netlify.toml
-
-[build]
-  command = "pnpm build"
-  publish = "dist"
-  functions = "netlify/functions"
-
-[[redirects]]
-  from = "/api/ai/suggest"
-  to   = "/.netlify/functions/ai-suggest"
-  status = 200
-
-[[redirects]]
-  from = "/api/r/aff"
-  to   = "/.netlify/functions/aff-redirect"
-  status = 200
-
-Environment Variables
-
-Client:
-VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AFFILIATE_AMAZON_TAG=purelivingp08-21, VITE_PROMPT_VARIANT
-
-Functions:
-GEMINI_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE,
-AMAZON_PA_ACCESS_KEY, AMAZON_PA_SECRET_KEY,
-AMAZON_PARTNER_TAG=purelivingp08-21,
-AMAZON_PA_REGION=eu-west-1, AMAZON_PA_HOST=webservices.amazon.co.uk
-
-
----
-
-10. Version Control and Future Roadmap
-
-v1.1 ( Current )
-
-Core conversational MVP
-
-Gemini 1.5 integration
-
-Supabase RLS schema
-
-Amazon PA-API primary affiliate source
-
-Netlify Functions deployment
-
-
-v1.2 ( Planned )
-
-n8n automation workflows
-
-PostHog analytics & A/B testing
-
-Predictive “Next Gift” runs
-
-Vertex AI migration
-
-WhatsApp bot bridge
-
-Event-level dashboards
-
-
-
----
-
-Document Version: v1.1 • Authoring Date: 2025-10-21 • Scope: Core AI + Affiliate + Data + Netlify
-Next Update: v1.2 – Automation & Analytics Layer Integration
-
-
----
-
-That’s your Bolt-ready Knowledge Base v1.1 — clean, narrative, formal, and technically deep enough for automated reasoning.
-Would you like me to now generate the matching “Project Instructions” file (short operational rules Bolt uses for coding tasks, separate from this knowledge narrative)?
+Excellent! Your codebase is well-structured. Now let me create a focused plan for the next phases since Phase 1 (Environment Variables) is complete.
+
+Plan: Givoro - Phase 2 to 4 Implementation (Post Environment Setup)
+Since your environment variables are configured in Netlify, here's the detailed plan for the next critical phases:
+
+Phase 2: Database Verification and Setup
+2.1 Verify Migration Status
+Check if the Supabase migration has been applied to your database
+Confirm that gift_suggestions and affiliate_clicks tables exist
+Verify RLS policies are enabled on both tables
+Test service role access from Netlify functions
+2.2 Test Database Connectivity
+Create a test Netlify function to validate Supabase connection
+Test insert operation into gift_suggestions table
+Test insert operation into affiliate_clicks table
+Verify that SUPABASE_SERVICE_ROLE has proper permissions
+2.3 Add Analytics Tables (Optional for MVP)
+Create sessions table for tracking user journeys
+Create users table for anonymous authentication
+Create profiles table for saving favorite recipients
+Set up proper foreign key relationships
+
+Phase 3: Conversational UI Transformation
+3.1 Create State Machine
+Design conversation flow states: GREET, RECIPIENT, OCCASION, BUDGET, INTERESTS, LOADING, RESULTS
+Build state transition logic with validation
+Add ability to go back and edit previous answers
+Store conversation context in React state
+3.2 Build Conversational Components
+Create ChatMessage component for bot and user messages
+Build OptionButton component for quick replies
+Create ProgressIndicator showing current step (1 of 4, etc.)
+Add typing indicator animation for bot responses
+3.3 Implement Four-Step Flow
+Step 1: Ask "Who are you buying for?" with options (Partner, Parent, Friend, Colleague, Child)
+Step 2: Ask "What's the occasion?" with options (Birthday, Anniversary, Holiday, Thank You, Just Because)
+Step 3: Ask "What's your budget?" with range options (Under £20, £20-50, £50-100, £100-200, £200+)
+Step 4: Ask "What are their interests?" with multi-select tags (Sports, Tech, Fashion, Books, Food, Travel, etc.)
+3.4 Replace Single Input Form
+Remove current single text input
+Add conversational message thread display
+Implement smooth scroll to latest message
+Add conversation reset button
+
+Phase 4: Enhanced AI Prompt Engineering
+4.1 Structured Prompt Builder
+Create prompt template that uses conversation data structure
+Format: "Find gifts for a [RECIPIENT] on their [OCCASION]. Budget: [BUDGET]. They love [INTERESTS]."
+Add persona instructions to make Gemini more conversational
+Include examples of good gift suggestions in system prompt
+4.2 Improve Response Handling
+Add JSON repair function for malformed responses
+Implement retry logic with exponential backoff
+Add fallback to generic suggestions if Gemini fails
+Log failed prompts for debugging
+4.3 Occasion-Specific Templates
+Create birthday-specific prompt enhancements
+Add anniversary-appropriate suggestions logic
+Handle holiday gift seasonality (Christmas vs Valentine's vs Mother's Day)
+Add corporate gift guidelines for colleague occasions
+4.4 Testing and Validation
+Test with edge cases (very low budgets, unusual interests)
+Validate JSON schema compliance
+Test handling of blocked content responses
+Ensure keyword quality for Amazon searches
+
+Phase 5: Amazon Integration Completion
+5.1 PA-API Configuration
+Verify all Amazon environment variables are set (ACCESS_KEY, SECRET_KEY, PARTNER_TAG, REGION, HOST)
+Test amazon-search function independently with sample queries
+Validate AWS SigV4 signature generation
+Confirm API quota limits (requests per second, daily limits)
+5.2 Product Search Optimization
+Implement smart keyword selection from AI suggestions
+Add category hints to improve search relevance
+Filter out inappropriate or irrelevant products
+Handle edge cases like no results found
+5.3 Fallback Strategy
+Build Amazon search page URL generator as fallback
+Add manual product links for popular categories
+Create "browse by category" links when PA-API fails
+Display helpful message when products unavailable
+5.4 Product Data Enrichment
+Extract and format product images properly
+Parse price data with currency symbols
+Add product rating display (if available in PA-API response)
+Truncate long product titles for better UI display
+
+Phase 6: Click Tracking Foundation
+6.1 Affiliate Redirect Function
+Complete aff-redirect.ts implementation
+Add click logging to affiliate_clicks table
+Validate affiliate URL before redirecting
+Add user agent and timestamp to click records
+6.2 Frontend Integration
+Replace direct affiliate links with redirect URLs
+Add click tracking to all product card links
+Implement tracking for fallback search links
+Add analytics events for user interactions
+6.3 Click Data Schema
+Store suggestion_id reference to link click back to AI response
+Add session_id for user journey tracking
+Include product category for performance analysis
+Track affiliate program name (Amazon, ClickBank, etc.)
+
+Phase 7: Testing and Validation
+7.1 Function Testing
+Test health endpoint returns 200 OK
+Test debug-env shows all required variables as true
+Test ai-suggest with sample conversation data
+Test amazon-search returns real products
+Test aff-redirect logs clicks properly
+7.2 End-to-End Flow
+Complete full conversation flow from greeting to results
+Click on affiliate links and verify redirect works
+Check Supabase tables have new records
+Validate no console errors in browser or function logs
+7.3 Error Scenarios
+Test with Gemini API key invalid
+Test with Supabase credentials invalid
+Test with Amazon PA-API rate limit exceeded
+Test with malformed user inputs
+Verify graceful error messages displayed to users
+
+Phase 8: UI Polish and Mobile Optimization
+8.1 Responsive Design
+Test conversational UI on mobile devices
+Ensure message bubbles display properly on small screens
+Make option buttons touch-friendly (min 44px height)
+Add proper viewport meta tags
+8.2 Loading States
+Add skeleton screens for AI processing
+Show typing indicator when bot is "thinking"
+Display progress bar during product search
+Add smooth transitions between conversation steps
+8.3 Accessibility
+Add ARIA labels to interactive elements
+Ensure keyboard navigation works
+Add focus states to all buttons
+Test with screen reader
+
+Phase 9: Performance Optimization
+9.1 Function Cold Starts
+Minimize dependencies in Netlify functions
+Add function warming strategy if needed
+Optimize Gemini API call timeout settings
+Cache Amazon product searches (optional)
+9.2 Frontend Performance
+Lazy load images from Amazon
+Add image loading placeholders
+Minimize bundle size with code splitting
+Optimize TailwindCSS purging
+9.3 Rate Limiting
+Implement client-side debouncing
+Add rate limit tracking in functions
+Display friendly message if limits exceeded
+Monitor Gemini API quota usage
+
+Phase 10: Deployment Validation
+10.1 Pre-Deployment Checklist
+All environment variables set in Netlify dashboard
+Supabase migrations applied successfully
+All functions return expected responses
+No hardcoded secrets in frontend code
+CORS headers properly configured
+10.2 Production Testing
+Deploy to Netlify production environment
+Test with real user scenarios
+Verify affiliate links have correct partner tag
+Check database records are being created
+Monitor function execution times
+10.3 Monitoring Setup
+Review Netlify function logs for errors
+Check Supabase dashboard for database activity
+Monitor Gemini API usage and costs
+Track Amazon PA-API request counts
+Set up alerts for function failures
+
+Immediate Next Steps (Recommended Order)
+Since your environment variables are configured, I recommend this sequence:
+Verify Database (Phase 2.1-2.2) - Ensure Supabase tables exist and are accessible
+Test Amazon Integration (Phase 5.1) - Confirm PA-API credentials work
+Build Conversational UI (Phase 3) - Transform user experience from form to conversation
+Enhance AI Prompts (Phase 4) - Make Gemini use structured conversation data
+Complete Click Tracking (Phase 6) - Enable revenue tracking
