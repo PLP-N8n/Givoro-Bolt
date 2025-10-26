@@ -17,6 +17,11 @@ export async function postIdeas(query: string, context?: ConversationContext) {
   try { json = text ? JSON.parse(text) : {}; } catch { json = { error: "Bad JSON", raw: text }; }
 
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        "API endpoint not found. Please deploy to Netlify or run 'netlify dev' for local testing."
+      );
+    }
     throw new Error(json?.error || json?.message || `HTTP ${res.status}`);
   }
   return json;

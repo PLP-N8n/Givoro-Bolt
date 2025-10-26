@@ -2,6 +2,8 @@
 
 Intelligent gift recommendation system powered by AI and Amazon Product Advertising API.
 
+> **⚠️ IMPORTANT**: This app uses Netlify Functions for backend APIs. Run `netlify dev` (not `npm run dev`) for local development, or deploy to Netlify for production. See [Local Development](#local-development) below.
+
 ## Features
 
 - AI-powered gift suggestions using Google Gemini
@@ -65,6 +67,8 @@ AMAZON_PA_HOST=webservices.amazon.co.uk
 
 ### Run Locally
 
+**Option 1: With Netlify CLI (Recommended)**
+
 ```bash
 netlify dev
 ```
@@ -72,6 +76,18 @@ netlify dev
 This starts:
 - Frontend dev server on `http://localhost:8888`
 - Netlify Functions on `http://localhost:8888/.netlify/functions/`
+- API routes work correctly at `/api/*`
+
+**Option 2: Frontend Only (No Backend)**
+
+```bash
+npm run dev
+```
+
+This starts:
+- Frontend dev server on `http://localhost:5173`
+- ⚠️ API calls will fail with 404 errors (backend functions not available)
+- Use this only for UI development without backend testing
 
 ## API Endpoints
 
