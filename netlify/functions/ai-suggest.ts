@@ -11,7 +11,7 @@ const CORS = {
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const SITE_URL = process.env.URL || "";
+const SITE_URL = process.env.URL || process.env.DEPLOY_URL || process.env.DEPLOY_PRIME_URL || "";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
@@ -47,7 +47,8 @@ export const handler: Handler = async (event) => {
           try { j = text ? JSON.parse(text) : {}; } catch { j = {}; }
           const items = Array.isArray(j?.items) ? j.items.slice(0, 1) : [];
           return { ...s, products: items };
-        } catch {
+        } catch (e) {
+          console.error("amazon-search fetch failed", { SITE_URL, searchQ, error: (e as any)?.message });
           return { ...s, products: [] };
         }
       })

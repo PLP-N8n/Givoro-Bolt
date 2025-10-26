@@ -61,14 +61,8 @@ export const handler: Handler = async (event) => {
     console.error("amazon-search error:", err);
     return {
       statusCode: 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        error: "Amazon search failed",
-        message: err.message,
-      }),
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Amazon search failed", message: err.message ?? "unknown" }),
     };
   }
 };
