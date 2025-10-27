@@ -66,8 +66,12 @@ export const handler: Handler = async (event) => {
 
     const enriched = await Promise.all(
       ideas.slice(0, LIMITS.MAX_SUGGESTIONS).map(async (s) => {
-        const searchQuery = (s.keywords?.length ? s.keywords : [s.title]).join(" ");
-        const products = await searchAmazonProducts(searchQuery, LIMITS.MAX_PRODUCTS_PER_SUGGESTION);
+        const searchKeywords = s.keywords?.length ? s.keywords : [s.title];
+        const products = await searchAmazonProducts(
+          searchKeywords,
+          LIMITS.MAX_PRODUCTS_PER_SUGGESTION,
+          context.interests
+        );
         return { ...s, products };
       })
     );

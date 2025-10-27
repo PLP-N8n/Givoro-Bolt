@@ -331,13 +331,25 @@ function App() {
                                     </p>
                                     {product.price && (
                                       <p className="text-sm font-semibold text-blue-600">
-                                        {product.price}
+                                        £{product.price}
                                       </p>
                                     )}
                                   </div>
                                 </a>
                               );
                             })}
+                          </div>
+                        )}
+                        {(!gift.products || gift.products.length === 0) && gift.keywords && gift.keywords.length > 0 && (
+                          <div className="border-t pt-4 mt-4">
+                            <a
+                              href={`https://www.amazon.co.uk/s?k=${encodeURIComponent(gift.keywords[0])}&tag=${import.meta.env.VITE_AMAZON_PARTNER_TAG || 'givoro-21'}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-600 hover:text-blue-800 underline"
+                            >
+                              Search for "{gift.keywords[0]}" on Amazon →
+                            </a>
                           </div>
                         )}
                         {gift.keywords && gift.keywords.length > 0 && (
