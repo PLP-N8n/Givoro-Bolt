@@ -1,17 +1,14 @@
 import type { Handler } from "@netlify/functions";
 import { insertAffiliateClick } from "../../lib/db-queries";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+import { validateAmazonUrl } from "../../lib/validation";
+import { getAmazonCredentials } from "../../lib/env-validation";
+import { CORS_HEADERS } from "../../lib/constants";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
-      headers: corsHeaders,
+      headers: CORS_HEADERS,
       body: "",
     };
   }
@@ -19,41 +16,43 @@ export const handler: Handler = async (event) => {
   try {
     const url = event.queryStringParameters?.url;
     const name = event.queryStringParameters?.name;
+    const suggestionId = event.queryStringParameters?.suggestionId;
 
     if (!url) {
       return {
         statusCode: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         body: JSON.stringify({ error: "Missing url parameter" }),
       };
     }
 
-    const parsedUrl = new URL(url);
-    const amazonTag = process.env.AMAZON_PARTNER_TAG || "purelivingp08-21";
-
-    if (!parsedUrl.searchParams.has("tag")) {
-      parsedUrl.searchParams.set("tag", amazonTag);
+    const urlValidation = validateAmazonUrl(url);
+    if (!urlValidation.isValid) {
+      return {
+        statusCode: 400,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: urlValidation.error }),
+      };
     }
 
-    const existingParams = Array.from(parsedUrl.searchParams.keys());
-    existingParams.forEach((key) => {
-      if (key.startsWith("utm_")) {
-        const value = parsedUrl.searchParams.get(key);
-        if (value) {
-          parsedUrl.searchParams.set(key, value);
-        }
-      }
-    });
+    const { partnerTag } = getAmazonCredentials();
+    const parsedUrl = new URL(url);
+
+    parsedUrl.searchParams.set("tag", partnerTag);
 
     const finalUrl = parsedUrl.toString();
 
     try {
-      const clickResult = await insertAffiliateClick(name || null, finalUrl, amazonTag);
+      const clickResult = await insertAffiliateClick(
+        name || null,
+        finalUrl,
+        partnerTag,
+        suggestionId || null
+      );
       if (!clickResult.success) {
         console.error("Failed to log affiliate click:", clickResult.error);
+      } else {
+        console.log("Logged affiliate click with ID:", clickResult.id);
       }
     } catch (err) {
       console.error("Failed to log affiliate click:", err);
@@ -62,7 +61,7 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 302,
       headers: {
-        ...corsHeaders,
+        ...CORS_HEADERS,
         Location: finalUrl,
       },
       body: "",
@@ -71,13 +70,10 @@ export const handler: Handler = async (event) => {
     console.error("aff-redirect error:", err);
     return {
       statusCode: 500,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({
         error: "Redirect failed",
-        message: err.message,
+        message: err.message ?? "An unexpected error occurred",
       }),
     };
   }

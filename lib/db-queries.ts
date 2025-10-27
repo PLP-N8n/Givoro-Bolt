@@ -1,14 +1,10 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseCredentials } from "./env-validation";
 
 export function getAdminClient(): SupabaseClient {
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE;
+  const { url, serviceRole } = getSupabaseCredentials();
 
-  if (!supabaseUrl || !supabaseServiceRole) {
-    throw new Error("Supabase admin credentials not configured");
-  }
-
-  return createClient(supabaseUrl, supabaseServiceRole, {
+  return createClient(url, serviceRole, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -18,7 +14,8 @@ export function getAdminClient(): SupabaseClient {
 
 export async function insertGiftSuggestion(
   query: string,
-  aiResponse: any
+  aiResponse: any,
+  sessionId: string | null = null
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
     const supabase = getAdminClient();
@@ -29,6 +26,7 @@ export async function insertGiftSuggestion(
         {
           query,
           ai_response: aiResponse,
+          session_id: sessionId,
         },
       ])
       .select("id")
@@ -49,7 +47,8 @@ export async function insertGiftSuggestion(
 export async function insertAffiliateClick(
   productName: string | null,
   productUrl: string,
-  affiliateTag: string
+  affiliateTag: string,
+  suggestionId: string | null = null
 ): Promise<{ success: boolean; id?: string; error?: string }> {
   try {
     const supabase = getAdminClient();
@@ -61,6 +60,7 @@ export async function insertAffiliateClick(
           product_name: productName,
           product_url: productUrl,
           affiliate_tag: affiliateTag,
+          suggestion_id: suggestionId,
         },
       ])
       .select("id")

@@ -20,6 +20,8 @@ type GiftSuggestion = {
   products?: Array<{ title?: string; price?: string; image?: string; url?: string }>;
 };
 
+const LOADING_DELAY = 1500;
+
 function App() {
   const {
     state,
@@ -39,6 +41,7 @@ function App() {
   } = useConversation();
 
   const [suggestions, setSuggestions] = useState<GiftSuggestion[]>([]);
+  const [suggestionId, setSuggestionId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -52,6 +55,7 @@ function App() {
         try {
           const result = await postIdeas(query, conversationData);
           setSuggestions(result.suggestions || []);
+          setSuggestionId(result.suggestionId || null);
           setState("RESULTS");
         } catch (e: any) {
           setErr(e.message || "Failed to get gift ideas. Please try again.");
@@ -61,7 +65,7 @@ function App() {
 
       setTimeout(() => {
         fetchSuggestions();
-      }, 1500);
+      }, LOADING_DELAY);
     }
   }, [state]);
 
@@ -89,12 +93,12 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-teal-50">
       <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Gift className="w-8 h-8 text-blue-600" />
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-teal-600 bg-clip-text text-transparent">
               {import.meta.env.VITE_APP_NAME || "Givoro"}
             </h1>
           </div>
@@ -120,7 +124,7 @@ function App() {
             <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
               Find the Perfect Gift
               <br />
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-blue-600 to-teal-600 bg-clip-text text-transparent">
                 in Seconds
               </span>
             </h2>
@@ -129,7 +133,7 @@ function App() {
             </p>
             <button
               onClick={startConversation}
-              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 transition-all flex items-center justify-center gap-2 mx-auto"
+              className="px-8 py-4 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-teal-700 transition-all flex items-center justify-center gap-2 mx-auto"
             >
               <Sparkles className="w-5 h-5" />
               Start Finding Gifts
@@ -146,8 +150,8 @@ function App() {
                 </p>
               </div>
               <div className="p-6">
-                <div className="bg-purple-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Gift className="w-8 h-8 text-purple-600" />
+                <div className="bg-teal-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Gift className="w-8 h-8 text-teal-600" />
                 </div>
                 <h3 className="font-semibold text-lg mb-2">Personalized</h3>
                 <p className="text-gray-600 text-sm">
@@ -227,7 +231,7 @@ function App() {
                           onClick={() => handleInterestsSelect(option.value)}
                           className={`px-4 py-2 rounded-full font-medium text-sm transition-all ${
                             isSelected
-                              ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white border-2 border-transparent"
+                              ? "bg-gradient-to-r from-blue-600 to-teal-600 text-white border-2 border-transparent"
                               : "bg-white border-2 border-blue-500 text-blue-600 hover:bg-blue-50"
                           }`}
                         >
@@ -239,7 +243,7 @@ function App() {
                   <button
                     onClick={handleInterestsConfirm}
                     disabled={!conversationData.interests?.length}
-                    className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-teal-600 text-white font-medium rounded-lg hover:from-blue-700 hover:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                   >
                     Continue ({conversationData.interests?.length || 0} selected)
                   </button>
@@ -286,7 +290,7 @@ function App() {
                     >
                       <div className="p-6">
                         <div className="flex items-start gap-3 mb-4">
-                          <div className="bg-gradient-to-br from-blue-500 to-purple-500 text-white rounded-lg w-10 h-10 flex items-center justify-center font-bold flex-shrink-0">
+                          <div className="bg-gradient-to-br from-blue-500 to-teal-500 text-white rounded-lg w-10 h-10 flex items-center justify-center font-bold flex-shrink-0">
                             {idx + 1}
                           </div>
                           <div>
@@ -301,7 +305,7 @@ function App() {
                             {gift.products.map((product, pidx) => {
                               const redirectUrl = `/api/aff-redirect?url=${encodeURIComponent(
                                 product.url || ""
-                              )}&name=${encodeURIComponent(product.title || "")}`;
+                              )}&name=${encodeURIComponent(product.title || "")}&suggestionId=${suggestionId || ""}`;
                               return (
                                 <a
                                   key={pidx}
@@ -314,6 +318,10 @@ function App() {
                                     <img
                                       src={product.image}
                                       alt={product.title}
+                                      loading="lazy"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = "none";
+                                      }}
                                       className="w-16 h-16 object-cover rounded"
                                     />
                                   )}

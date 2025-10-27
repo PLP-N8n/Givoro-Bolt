@@ -1,108 +1,60 @@
 import type { Handler } from "@netlify/functions";
-import { signPaapiRequest, buildSearchItemsPayload } from "../../lib/amazonSign";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
+import { searchAmazonProducts } from "../../lib/amazon-search";
+import { validateQuery } from "../../lib/validation";
+import { CORS_HEADERS } from "../../lib/constants";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
       statusCode: 200,
-      headers: corsHeaders,
+      headers: CORS_HEADERS,
       body: "",
     };
   }
 
   try {
-    const requiredVars = {
-      AMAZON_PA_ACCESS_KEY: process.env.AMAZON_PA_ACCESS_KEY,
-      AMAZON_PA_SECRET_KEY: process.env.AMAZON_PA_SECRET_KEY,
-      AMAZON_PARTNER_TAG: process.env.AMAZON_PARTNER_TAG,
-    };
+    let query: string | null = null;
 
-    const missingVars = Object.entries(requiredVars)
-      .filter(([_, value]) => !value)
-      .map(([key]) => key);
-
-    if (missingVars.length > 0) {
-      return {
-        statusCode: 500,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          error: "Amazon PA-API credentials not configured",
-          missing: missingVars,
-          message: "Please set the required environment variables in StackBlitz or Netlify",
-        }),
-      };
+    if (event.queryStringParameters?.q) {
+      query = event.queryStringParameters.q;
+    } else if (event.body) {
+      try {
+        const body = JSON.parse(event.body);
+        query = body.query;
+      } catch {
+        return {
+          statusCode: 400,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Invalid JSON in request body" }),
+        };
+      }
     }
 
-    const query =
-      event.queryStringParameters?.q ||
-      (event.body ? JSON.parse(event.body).query : null);
-
-    if (!query) {
+    const queryValidation = validateQuery(query);
+    if (!queryValidation.isValid) {
       return {
         statusCode: 400,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ error: "Missing ?q= or { query }" }),
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: queryValidation.error }),
       };
     }
 
-    const payload = buildSearchItemsPayload({
-      keywords: query,
-      itemCount: 6,
-    });
-
-    const { url, options } = signPaapiRequest({ payloadObj: payload });
-    const res = await fetch(url, options);
-    const data = await res.json();
-
-    if (data.Errors) {
-      console.error("Amazon PA-API error:", data.Errors);
-      return {
-        statusCode: 502,
-        headers: {
-          ...corsHeaders,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          error: "Amazon PA-API returned an error",
-          details: data.Errors,
-        }),
-      };
-    }
-
-    const items = data?.SearchResult?.Items?.map((i: any) => ({
-      asin: i.ASIN,
-      title: i.ItemInfo?.Title?.DisplayValue,
-      image: i.Images?.Primary?.Medium?.URL,
-      price: i.Offers?.Listings?.[0]?.Price?.DisplayAmount,
-      url: i.DetailPageURL,
-    })) ?? [];
+    const items = await searchAmazonProducts(query as string);
 
     return {
       statusCode: 200,
-      headers: {
-        ...corsHeaders,
-        "Content-Type": "application/json",
-      },
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({ query, count: items.length, items }),
     };
   } catch (err: any) {
     console.error("amazon-search error:", err);
     return {
       statusCode: 500,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Amazon search failed", message: err.message ?? "unknown" }),
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error: "Amazon search failed",
+        message: err.message ?? "An unexpected error occurred"
+      }),
     };
   }
 };

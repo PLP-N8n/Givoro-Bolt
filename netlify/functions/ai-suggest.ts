@@ -1,87 +1,104 @@
 import type { Handler } from "@netlify/functions";
 import { getGiftIdeasFromGemini } from "../../lib/ai/gemini";
 import { insertGiftSuggestion } from "../../lib/db-queries";
-
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY!;
-const SITE_URL = process.env.URL || process.env.DEPLOY_URL || process.env.DEPLOY_PRIME_URL || "";
+import { searchAmazonProducts } from "../../lib/amazon-search";
+import { getGeminiApiKey } from "../../lib/env-validation";
+import { validateQuery, validateConversationContext } from "../../lib/validation";
+import { CORS_HEADERS, LIMITS } from "../../lib/constants";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers: CORS, body: "" };
+    return { statusCode: 200, headers: CORS_HEADERS, body: "" };
   }
 
   try {
+    const apiKey = getGeminiApiKey();
+
     let body: any = {};
-    if (event.body) { try { body = JSON.parse(event.body); } catch { body = {}; } }
+    if (event.body) {
+      try {
+        body = JSON.parse(event.body);
+      } catch {
+        return {
+          statusCode: 400,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          body: JSON.stringify({ error: "Invalid JSON in request body" }),
+        };
+      }
+    }
 
     const query =
       body.query ??
       event.queryStringParameters?.q ??
       `${body.occasion ?? ""} ${body.recipient ?? ""} ${body.interests ?? ""}`.trim();
 
-    if (!query) {
+    const queryValidation = validateQuery(query);
+    if (!queryValidation.isValid) {
       return {
         statusCode: 400,
-        headers: { ...CORS, "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Missing query. Provide { query } or ?q=..." }),
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: queryValidation.error }),
       };
     }
 
-    const context = {
+    const contextValidation = validateConversationContext({
       recipient: body.recipient,
       occasion: body.occasion,
       budget: body.budget,
-      interests: Array.isArray(body.interests) ? body.interests : undefined,
-    };
+      interests: body.interests,
+    });
+
+    if (!contextValidation.isValid) {
+      return {
+        statusCode: 400,
+        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        body: JSON.stringify({ error: contextValidation.error }),
+      };
+    }
+
+    const context = contextValidation.data!;
+    const sessionId = body.sessionId || event.headers["x-session-id"] || null;
 
     console.log("Calling Gemini API with query:", query);
     console.log("Context:", context);
-    const ideas = await getGiftIdeasFromGemini(GEMINI_API_KEY, query, context);
+    const ideas = await getGiftIdeasFromGemini(apiKey, query, context);
     console.log("Gemini returned", ideas.length, "ideas");
 
     const enriched = await Promise.all(
-      ideas.slice(0, 10).map(async (s) => {
-        const searchQ = encodeURIComponent((s.keywords?.length ? s.keywords : [s.title]).join(" "));
-        try {
-          const r = await fetch(`${SITE_URL}/.netlify/functions/amazon-search?q=${searchQ}`);
-          const text = await r.text();
-          let j: any = {};
-          try { j = text ? JSON.parse(text) : {}; } catch { j = {}; }
-          const items = Array.isArray(j?.items) ? j.items.slice(0, 1) : [];
-          return { ...s, products: items };
-        } catch (e) {
-          console.error("amazon-search fetch failed", { SITE_URL, searchQ, error: (e as any)?.message });
-          return { ...s, products: [] };
-        }
+      ideas.slice(0, LIMITS.MAX_SUGGESTIONS).map(async (s) => {
+        const searchQuery = (s.keywords?.length ? s.keywords : [s.title]).join(" ");
+        const products = await searchAmazonProducts(searchQuery, LIMITS.MAX_PRODUCTS_PER_SUGGESTION);
+        return { ...s, products };
       })
     );
 
-    const dbResult = await insertGiftSuggestion(query, enriched);
+    const dbResult = await insertGiftSuggestion(query, enriched, sessionId);
 
     if (!dbResult.success) {
       console.error("Database insert error:", dbResult.error);
+    } else {
+      console.log("Saved suggestion with ID:", dbResult.id);
     }
 
     return {
       statusCode: 200,
-      headers: { ...CORS, "Content-Type": "application/json" },
-      body: JSON.stringify({ query, suggestions: enriched, saved: true }),
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query,
+        suggestions: enriched,
+        suggestionId: dbResult.id,
+        saved: dbResult.success
+      }),
     };
   } catch (e: any) {
     console.error("ai-suggest failed:", e);
     console.error("Stack trace:", e.stack);
     return {
       statusCode: 500,
-      headers: { ...CORS, "Content-Type": "application/json" },
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
       body: JSON.stringify({
-        error: "ai-suggest failed",
-        message: e.message ?? "unknown",
+        error: "Failed to generate gift suggestions",
+        message: e.message ?? "An unexpected error occurred",
         details: process.env.NODE_ENV === 'development' ? e.stack : undefined
       }),
     };

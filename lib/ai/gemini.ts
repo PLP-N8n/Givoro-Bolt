@@ -1,3 +1,5 @@
+import { TIMING, LIMITS } from "../constants";
+
 export type GiftIdea = { title: string; reason: string; keywords: string[] };
 
 type ConversationContext = {
@@ -8,8 +10,6 @@ type ConversationContext = {
 };
 
 const MODEL = "gemini-1.5-flash";
-const MAX_RETRIES = 3;
-const BASE_DELAY = 1000;
 
 function buildStructuredPrompt(query: string, context?: ConversationContext): string {
   const occasionGuidance = getOccasionGuidance(context?.occasion);
@@ -220,7 +220,7 @@ export async function getGiftIdeasFromGemini(
 ): Promise<GiftIdea[]> {
   const prompt = buildStructuredPrompt(query, context);
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < TIMING.GEMINI_MAX_RETRIES; attempt++) {
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
@@ -241,14 +241,14 @@ export async function getGiftIdeasFromGemini(
         const errorText = await res.text();
         console.error(`Gemini API error (attempt ${attempt + 1}):`, res.status, errorText);
 
-        if (res.status === 429 && attempt < MAX_RETRIES - 1) {
-          const delay = BASE_DELAY * Math.pow(2, attempt);
+        if (res.status === 429 && attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+          const delay = TIMING.GEMINI_BASE_DELAY * Math.pow(2, attempt);
           console.log(`Rate limited, retrying in ${delay}ms...`);
           await sleep(delay);
           continue;
         }
 
-        if (attempt === MAX_RETRIES - 1) {
+        if (attempt === TIMING.GEMINI_MAX_RETRIES - 1) {
           console.log("Max retries reached, returning fallback suggestions");
           return getFallbackSuggestions(query);
         }
@@ -266,8 +266,8 @@ export async function getGiftIdeasFromGemini(
 
       if (!text) {
         console.error("No text in Gemini response:", JSON.stringify(data));
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(BASE_DELAY);
+        if (attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+          await sleep(TIMING.GEMINI_BASE_DELAY);
           continue;
         }
         return getFallbackSuggestions(query);
@@ -282,8 +282,8 @@ export async function getGiftIdeasFromGemini(
         console.error(`JSON parse error (attempt ${attempt + 1}):`, parseError);
         console.error("Failed text:", text.substring(0, 200));
 
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(BASE_DELAY);
+        if (attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+          await sleep(TIMING.GEMINI_BASE_DELAY);
           continue;
         }
         return getFallbackSuggestions(query);
@@ -291,8 +291,8 @@ export async function getGiftIdeasFromGemini(
 
       if (!Array.isArray(parsed)) {
         console.error("Gemini response not an array:", text.substring(0, 200));
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(BASE_DELAY);
+        if (attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+          await sleep(TIMING.GEMINI_BASE_DELAY);
           continue;
         }
         return getFallbackSuggestions(query);
@@ -312,19 +312,19 @@ export async function getGiftIdeasFromGemini(
 
       if (validated.length === 0) {
         console.error("No valid suggestions after validation");
-        if (attempt < MAX_RETRIES - 1) {
-          await sleep(BASE_DELAY);
+        if (attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+          await sleep(TIMING.GEMINI_BASE_DELAY);
           continue;
         }
         return getFallbackSuggestions(query);
       }
 
-      return validated.slice(0, 6);
+      return validated.slice(0, LIMITS.MAX_SUGGESTIONS);
     } catch (error) {
       console.error(`getGiftIdeasFromGemini error (attempt ${attempt + 1}):`, error);
 
-      if (attempt < MAX_RETRIES - 1) {
-        const delay = BASE_DELAY * Math.pow(2, attempt);
+      if (attempt < TIMING.GEMINI_MAX_RETRIES - 1) {
+        const delay = TIMING.GEMINI_BASE_DELAY * Math.pow(2, attempt);
         await sleep(delay);
         continue;
       }
