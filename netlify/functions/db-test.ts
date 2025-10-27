@@ -7,6 +7,102 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
+interface TestResult {
+  status: string;
+  insert?: boolean;
+  select?: boolean;
+  cleanup?: boolean;
+  recordId?: string;
+  data?: any;
+  error?: string;
+  selectError?: string;
+  cleanupError?: string;
+  message?: string;
+}
+
+interface TestResults {
+  timestamp: string;
+  connection: {
+    status: string;
+    message: string;
+    url?: string;
+  };
+  tables: {
+    gift_suggestions?: TestResult;
+    affiliate_clicks?: TestResult;
+    saved_gifts?: TestResult;
+    sessions?: TestResult;
+    user_profiles?: TestResult;
+  };
+  summary?: {
+    allPassed: boolean;
+    message: string;
+    tableResults: { [key: string]: boolean };
+  };
+}
+
+async function testTable(
+  supabase: any,
+  tableName: string,
+  testData: any
+): Promise<TestResult> {
+  try {
+    const { data: insertData, error: insertError } = await supabase
+      .from(tableName)
+      .insert([testData])
+      .select();
+
+    if (insertError) {
+      return {
+        status: "error",
+        insert: false,
+        error: insertError.message,
+      };
+    }
+
+    const result: TestResult = {
+      status: "ok",
+      insert: true,
+      recordId: insertData?.[0]?.id,
+    };
+
+    if (insertData?.[0]?.id) {
+      const { data: selectData, error: selectError } = await supabase
+        .from(tableName)
+        .select("*")
+        .eq("id", insertData[0].id)
+        .single();
+
+      if (selectError) {
+        result.select = false;
+        result.selectError = selectError.message;
+      } else {
+        result.select = true;
+        result.data = selectData;
+      }
+
+      const { error: deleteError } = await supabase
+        .from(tableName)
+        .delete()
+        .eq("id", insertData[0].id);
+
+      if (deleteError) {
+        result.cleanup = false;
+        result.cleanupError = deleteError.message;
+      } else {
+        result.cleanup = true;
+      }
+    }
+
+    return result;
+  } catch (err: any) {
+    return {
+      status: "error",
+      message: err.message,
+    };
+  }
+}
+
 export const handler: Handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -16,11 +112,10 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  const results: any = {
+  const results: TestResults = {
     timestamp: new Date().toISOString(),
     connection: { status: "unknown", message: "" },
     tables: {},
-    testOperations: {},
   };
 
   try {
@@ -30,7 +125,8 @@ export const handler: Handler = async (event) => {
     if (!supabaseUrl || !supabaseServiceRole) {
       results.connection = {
         status: "failed",
-        message: "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE environment variables",
+        message:
+          "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE environment variables",
       };
 
       return {
@@ -39,7 +135,7 @@ export const handler: Handler = async (event) => {
           ...corsHeaders,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(results),
+        body: JSON.stringify(results, null, 2),
       };
     }
 
@@ -53,134 +149,71 @@ export const handler: Handler = async (event) => {
 
     const testId = `test-${Date.now()}`;
 
-    try {
-      const { data: insertData, error: insertError } = await supabase
-        .from("gift_suggestions")
-        .insert([
-          {
-            query: testId,
-            ai_response: { test: true, timestamp: new Date().toISOString() },
-          },
-        ])
-        .select();
-
-      if (insertError) {
-        results.tables.gift_suggestions = {
-          status: "error",
-          insert: false,
-          error: insertError.message,
-        };
-      } else {
-        results.tables.gift_suggestions = {
-          status: "ok",
-          insert: true,
-          recordId: insertData?.[0]?.id,
-        };
-
-        if (insertData?.[0]?.id) {
-          const { data: selectData, error: selectError } = await supabase
-            .from("gift_suggestions")
-            .select("*")
-            .eq("id", insertData[0].id)
-            .single();
-
-          if (selectError) {
-            results.tables.gift_suggestions.select = false;
-            results.tables.gift_suggestions.selectError = selectError.message;
-          } else {
-            results.tables.gift_suggestions.select = true;
-            results.tables.gift_suggestions.data = selectData;
-          }
-
-          const { error: deleteError } = await supabase
-            .from("gift_suggestions")
-            .delete()
-            .eq("id", insertData[0].id);
-
-          if (deleteError) {
-            results.tables.gift_suggestions.cleanup = false;
-            results.tables.gift_suggestions.cleanupError = deleteError.message;
-          } else {
-            results.tables.gift_suggestions.cleanup = true;
-          }
-        }
+    results.tables.gift_suggestions = await testTable(
+      supabase,
+      "gift_suggestions",
+      {
+        query: testId,
+        ai_response: { test: true, timestamp: new Date().toISOString() },
+        session_id: testId,
       }
-    } catch (err: any) {
-      results.tables.gift_suggestions = {
-        status: "error",
-        message: err.message,
-      };
-    }
+    );
 
-    try {
-      const { data: insertData, error: insertError } = await supabase
-        .from("affiliate_clicks")
-        .insert([
-          {
-            product_name: "Test Product " + testId,
-            product_url: "https://amazon.co.uk/test-" + testId,
-            affiliate_tag: "test-tag-21",
-          },
-        ])
-        .select();
-
-      if (insertError) {
-        results.tables.affiliate_clicks = {
-          status: "error",
-          insert: false,
-          error: insertError.message,
-        };
-      } else {
-        results.tables.affiliate_clicks = {
-          status: "ok",
-          insert: true,
-          recordId: insertData?.[0]?.id,
-        };
-
-        if (insertData?.[0]?.id) {
-          const { data: selectData, error: selectError } = await supabase
-            .from("affiliate_clicks")
-            .select("*")
-            .eq("id", insertData[0].id)
-            .single();
-
-          if (selectError) {
-            results.tables.affiliate_clicks.select = false;
-            results.tables.affiliate_clicks.selectError = selectError.message;
-          } else {
-            results.tables.affiliate_clicks.select = true;
-            results.tables.affiliate_clicks.data = selectData;
-          }
-
-          const { error: deleteError } = await supabase
-            .from("affiliate_clicks")
-            .delete()
-            .eq("id", insertData[0].id);
-
-          if (deleteError) {
-            results.tables.affiliate_clicks.cleanup = false;
-            results.tables.affiliate_clicks.cleanupError = deleteError.message;
-          } else {
-            results.tables.affiliate_clicks.cleanup = true;
-          }
-        }
+    results.tables.affiliate_clicks = await testTable(
+      supabase,
+      "affiliate_clicks",
+      {
+        product_name: "Test Product " + testId,
+        product_url: "https://amazon.co.uk/test-" + testId,
+        affiliate_tag: "test-tag-21",
       }
-    } catch (err: any) {
-      results.tables.affiliate_clicks = {
-        status: "error",
-        message: err.message,
-      };
-    }
+    );
 
-    const allTestsPassed =
-      results.tables.gift_suggestions?.status === "ok" &&
-      results.tables.affiliate_clicks?.status === "ok";
+    results.tables.saved_gifts = await testTable(supabase, "saved_gifts", {
+      session_id: testId,
+      recipient_name: "Test Recipient",
+      gift_title: "Test Gift " + testId,
+      gift_reason: "Testing database connectivity",
+      product_url: "https://amazon.co.uk/test-" + testId,
+      occasion: "Testing",
+      budget_range: "£20-50",
+    });
+
+    results.tables.sessions = await testTable(supabase, "sessions", {
+      id: testId,
+      user_agent: "Test Agent",
+      ip_address: "127.0.0.1",
+      completed_steps: ["step1", "step2"],
+      converted: false,
+    });
+
+    results.tables.user_profiles = await testTable(supabase, "user_profiles", {
+      email: `test-${testId}@example.com`,
+      session_ids: [testId],
+      favorite_recipients: [{ name: "Test", count: 1 }],
+      typical_budget: "£20-50",
+      interests: ["testing", "automation"],
+      total_suggestions_viewed: 0,
+      total_clicks: 0,
+    });
+
+    const tableResults: { [key: string]: boolean } = {};
+    let allTestsPassed = true;
+
+    for (const [tableName, result] of Object.entries(results.tables)) {
+      const passed = result?.status === "ok";
+      tableResults[tableName] = passed;
+      if (!passed) {
+        allTestsPassed = false;
+      }
+    }
 
     results.summary = {
       allPassed: allTestsPassed,
       message: allTestsPassed
-        ? "All database tests passed successfully"
+        ? "All database tests passed successfully - All 5 tables working"
         : "Some database tests failed - check details above",
+      tableResults,
     };
 
     return {
