@@ -6,6 +6,7 @@ import { ChatMessage } from "./components/ChatMessage";
 import { OptionButton } from "./components/OptionButton";
 import { TypingIndicator } from "./components/TypingIndicator";
 import { ProgressIndicator } from "./components/ProgressIndicator";
+import { BudgetSlider } from "./components/BudgetSlider";
 import {
   RECIPIENT_OPTIONS,
   OCCASION_OPTIONS,
@@ -33,6 +34,7 @@ function App() {
     handleRecipientSelect,
     handleOccasionSelect,
     handleBudgetSelect,
+    handleBudgetRangeSelect,
     handleInterestsSelect,
     handleInterestsConfirm,
     startConversation,
@@ -70,12 +72,16 @@ function App() {
   }, [state]);
 
   const buildQuery = (): string => {
-    const { recipient, occasion, budget, interests } = conversationData;
+    const { recipient, occasion, budget, budgetMin, budgetMax, interests } = conversationData;
     const parts: string[] = [];
 
     if (recipient) parts.push(`for ${recipient}`);
     if (occasion) parts.push(`${occasion}`);
-    if (budget) parts.push(formatBudget(budget));
+    if (budgetMin !== undefined && budgetMax !== undefined) {
+      parts.push(`£${budgetMin}-£${budgetMax}`);
+    } else if (budget) {
+      parts.push(formatBudget(budget));
+    }
     if (interests?.length) parts.push(`interested in ${interests.join(", ")}`);
 
     return parts.join(" ");
@@ -209,15 +215,7 @@ function App() {
               )}
 
               {!isTyping && state === "BUDGET" && (
-                <div className="flex flex-wrap gap-2">
-                  {BUDGET_OPTIONS.map((option) => (
-                    <OptionButton
-                      key={option.value}
-                      label={option.label}
-                      onClick={() => handleBudgetSelect(option.value)}
-                    />
-                  ))}
-                </div>
+                <BudgetSlider onBudgetSelect={handleBudgetRangeSelect} />
               )}
 
               {!isTyping && state === "INTERESTS" && (

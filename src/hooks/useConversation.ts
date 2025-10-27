@@ -84,6 +84,16 @@ export function useConversation() {
     [addMessage, addBotMessage]
   );
 
+  const handleBudgetRangeSelect = useCallback(
+    (min: number, max: number) => {
+      addMessage("user", `£${min} - £${max}`);
+      setConversationData((prev) => ({ ...prev, budgetMin: min, budgetMax: max, budget: `custom_${min}_${max}` }));
+      setState("INTERESTS");
+      addBotMessage(`Got it! What are they interested in? (Select all that apply)`);
+    },
+    [addMessage, addBotMessage]
+  );
+
   const handleInterestsSelect = useCallback(
     (value: string) => {
       setConversationData((prev) => {
@@ -146,6 +156,7 @@ export function useConversation() {
     handleRecipientSelect,
     handleOccasionSelect,
     handleBudgetSelect,
+    handleBudgetRangeSelect,
     handleInterestsSelect,
     handleInterestsConfirm,
     startConversation,

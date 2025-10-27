@@ -20,6 +20,8 @@ export interface ConversationData {
   recipient?: string;
   occasion?: string;
   budget?: string;
+  budgetMin?: number;
+  budgetMax?: number;
   interests?: string[];
 }
 
